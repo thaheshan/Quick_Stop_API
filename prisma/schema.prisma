@@ -1,0 +1,214 @@
+// This is your Prisma schema file — Vroomy Database Model
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────
+// USER — Dual Registration: one account, two roles
+// ─────────────────────────────────────────────────────────
+model User {
+  id                    String    @id @default(uuid())
+  email                 String    @unique
+  phone                 String    @unique
+  fullName              String
+  passwordHash          String
+  isVerifiedOwner       Boolean   @default(false)
+  hasVerifiedLicense    Boolean   @default(false)
+  isPhoneVerified       Boolean   @default(false)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  vehicles              Vehicle[]
+  tripRequestsAsCustomer TripRequest[]
+  offersAsOwner         BroadcastOffer[]
+  sentMessages          ChatMessage[]
+  chatThreads           ChatThreadParticipant[]
+  payments              Payment[]
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────
+// VEHICLE — Listings with dynamic pricing
+// ─────────────────────────────────────────────────────────
+model Vehicle {
+  id            String        @id @default(uuid())
+  ownerId       String
+  type          VehicleType
+  make          String
+  model         String
+  year          Int
+  plateNumber   String        @unique
+  location      String
+  basePriceLKR  Float
+  status        VehicleStatus @default(DRAFT)
+  isVerified    Boolean       @default(false)
+  photos        String[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  owner         User          @relation(fields: [ownerId], references: [id])
+  pricingRules  PricingRule[]
+  offers        BroadcastOffer[]
+
+  @@map("vehicles")
+}
+
+model PricingRule {
+  id          String   @id @default(uuid())
+  vehicleId   String
+  label       String
+  multiplier  Float
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime @default(now())
+
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@map("pricing_rules")
+}
+
+enum VehicleType {
+  CAR
+  VAN
+  TUK
+  MOTORBIKE
+  SUV
+  BUS
+}
+
+enum VehicleStatus {
+  DRAFT
+  PENDING_VERIFICATION
+  ACTIVE
+  INACTIVE
+}
+
+// ─────────────────────────────────────────────────────────
+// BOOKING — Request-Broadcast Model
+// ─────────────────────────────────────────────────────────
+model TripRequest {
+  id             String        @id @default(uuid())
+  customerId     String
+  vehicleType    VehicleType
+  location       String
+  startDate      DateTime
+  endDate        DateTime
+  budgetCapLKR   Float
+  status         BookingStatus @default(OPEN)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  customer       User           @relation(fields: [customerId], references: [id])
+  offers         BroadcastOffer[]
+  chatThread     ChatThread?
+
+  @@map("trip_requests")
+}
+
+model BroadcastOffer {
+  id                String      @id @default(uuid())
+  requestId         String
+  ownerId           String
+  vehicleId         String
+  proposedPriceLKR  Float
+  message           String?
+  status            OfferStatus @default(PENDING)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  request           TripRequest @relation(fields: [requestId], references: [id])
+  owner             User        @relation(fields: [ownerId], references: [id])
+  vehicle           Vehicle     @relation(fields: [vehicleId], references: [id])
+  payment           Payment?
+
+  @@map("broadcast_offers")
+}
+
+enum BookingStatus {
+  OPEN
+  FULFILLED
+  CANCELLED
+}
+
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+// ─────────────────────────────────────────────────────────
+// CHAT — In-platform only communication
+// ─────────────────────────────────────────────────────────
+model ChatThread {
+  id           String   @id @default(uuid())
+  tripRequestId String  @unique
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tripRequest  TripRequest @relation(fields: [tripRequestId], references: [id])
+  participants ChatThreadParticipant[]
+  messages     ChatMessage[]
+
+  @@map("chat_threads")
+}
+
+model ChatThreadParticipant {
+  id       String @id @default(uuid())
+  threadId String
+  userId   String
+
+  thread   ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user     User       @relation(fields: [userId], references: [id])
+
+  @@unique([threadId, userId])
+  @@map("chat_thread_participants")
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  threadId  String
+  senderId  String
+  content   String   // Stored after server-side sanitization
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  thread    ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender    User       @relation(fields: [senderId], references: [id])
+
+  @@map("chat_messages")
+}
+
+// ─────────────────────────────────────────────────────────
+// PAYMENT — End-to-end payment tracking
+// ─────────────────────────────────────────────────────────
+model Payment {
+  id              String        @id @default(uuid())
+  offerId         String        @unique
+  userId          String
+  amountLKR       Float
+  commissionLKR   Float
+  ownerPayoutLKR  Float
+  status          PaymentStatus @default(PENDING)
+  gatewayRef      String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  offer           BroadcastOffer @relation(fields: [offerId], references: [id])
+  user            User           @relation(fields: [userId], references: [id])
+
+  @@map("payments")
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
