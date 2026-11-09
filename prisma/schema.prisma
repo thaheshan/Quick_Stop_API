@@ -186,6 +186,27 @@ model ChatMessage {
 }
 
 // ─────────────────────────────────────────────────────────
+// OTP — One-Time Password records for phone verification
+// ─────────────────────────────────────────────────────────
+model OtpRecord {
+  id          String   @id @default(uuid())
+  /// E.164-normalised phone number, e.g. +94771234567
+  phone       String
+  /// bcrypt hash of the 6-digit code — never store plaintext
+  codeHash    String
+  /// Unique token returned to the client as requestId
+  requestId   String   @unique @default(uuid())
+  /// When this OTP expires (createdAt + 5 min)
+  expiresAt   DateTime
+  /// Marked true once consumed by /auth/otp/verify
+  used        Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([phone])
+  @@map("otp_records")
+}
+
+// ─────────────────────────────────────────────────────────
 // PAYMENT — End-to-end payment tracking
 // ─────────────────────────────────────────────────────────
 model Payment {
